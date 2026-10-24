@@ -94,6 +94,14 @@ The ecosystem already has egress-security plugins; this one is about **budget an
 
 If you need SSRF / exfiltration protection, use those; this repo keeps you from burning a metered plan.
 
+## Roadmap
+- [ ] Ask through `ctx.approval` before exceeding the budget instead of failing hard
+- [ ] SOCKS5 support in `netguard` (HTTP/HTTPS proxies only today)
+- [ ] Optional `web_fetch` provider replacement (needs handling of `WEB_PROVIDER_AMBIGUOUS`)
+- [ ] CI: `.github/workflows/ci.yml` is ready, pending a token with `workflow` scope
+- [ ] Publish to npm so `dsh plugin add dsh-traffic-guard` works
+- [ ] Get listed in awesome-dsh-plugin / dsh-market
+
 ## Limitations
 
 - **Not an OS-level firewall.** It constrains downloads that go through `netguard`. Bypassing calls

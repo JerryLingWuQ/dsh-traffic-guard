@@ -95,6 +95,14 @@ DSH 生态里已有几个方向相近的插件，本项目的取舍是**预算�
 
 如果你要的是「防 SSRF / 防数据外泄」，请优先看上面三个；本插件解决的是「别把计量流量烧光」。
 
+## Roadmap
+- [ ] 超预算前走 `ctx.approval` 弹审批，而不是直接失败
+- [ ] `netguard` 支持 SOCKS5（现在只支持 HTTP/HTTPS 代理）
+- [ ] 可选 `web_fetch` provider 替换模式（需处理 `WEB_PROVIDER_AMBIGUOUS`）
+- [ ] CI：`.github/workflows/ci.yml` 已就绪，待仓库具备 workflow 权限后启用
+- [ ] 发布 npm 包，支持 `dsh plugin add dsh-traffic-guard`
+- [ ] 收录进 awesome-dsh-plugin / dsh-market 等社区列表
+
 ## 局限（请先读）
 
 - **不是操作系统级防火墙**。它约束的是「经过 `netguard` 的下载」。任何绕过它的 `curl`、`git clone`、应用自动更新，都不会被拦（但会出现在系统/客户端的总量里）。
