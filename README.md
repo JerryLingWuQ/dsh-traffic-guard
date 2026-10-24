@@ -5,6 +5,8 @@
 
 一个 CLI（`netguard`，可独立使用）+ 一个 Host 插件（3 个工具：`net_usage` / `net_probe` / `net_download`）。
 
+![ci](https://github.com/JerryLingWuQ/dsh-traffic-guard/actions/workflows/ci.yml/badge.svg)
+
 > English: [README.en.md](README.en.md)
 
 ---
@@ -99,7 +101,7 @@ DSH 生态里已有几个方向相近的插件，本项目的取舍是**预算�
 - [ ] 超预算前走 `ctx.approval` 弹审批，而不是直接失败
 - [ ] `netguard` 支持 SOCKS5（现在只支持 HTTP/HTTPS 代理）
 - [ ] 可选 `web_fetch` provider 替换模式（需处理 `WEB_PROVIDER_AMBIGUOUS`）
-- [ ] CI：`.github/workflows/ci.yml` 已就绪，待仓库具备 workflow 权限后启用
+- [x] CI（GitHub Actions：10 个单测 + `node --check` + manifest JSON 校验）
 - [ ] 发布 npm 包，支持 `dsh plugin add dsh-traffic-guard`
 - [ ] 收录进 awesome-dsh-plugin / dsh-market 等社区列表
 

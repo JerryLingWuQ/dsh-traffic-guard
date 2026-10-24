@@ -7,6 +7,8 @@ and every proxied byte is charged against a hard per-call / per-day budget and w
 One CLI (`netguard`, usable standalone) + one Host plugin exposing three tools:
 `net_usage`, `net_probe`, `net_download`.
 
+![ci](https://github.com/JerryLingWuQ/dsh-traffic-guard/actions/workflows/ci.yml/badge.svg)
+
 > 中文: [README.md](README.md)
 
 ## Why
@@ -98,7 +100,7 @@ If you need SSRF / exfiltration protection, use those; this repo keeps you from 
 - [ ] Ask through `ctx.approval` before exceeding the budget instead of failing hard
 - [ ] SOCKS5 support in `netguard` (HTTP/HTTPS proxies only today)
 - [ ] Optional `web_fetch` provider replacement (needs handling of `WEB_PROVIDER_AMBIGUOUS`)
-- [ ] CI: `.github/workflows/ci.yml` is ready, pending a token with `workflow` scope
+- [x] CI (GitHub Actions: 10 unit tests + `node --check` + manifest JSON check)
 - [ ] Publish to npm so `dsh plugin add dsh-traffic-guard` works
 - [ ] Get listed in awesome-dsh-plugin / dsh-market
 
