@@ -2,7 +2,8 @@
 # name (not a relative path) so Node resolves the installed copy.
 #
 # Optional config keys (all default to sensible values):
-#   pythonPath: interpreter used to run cli/netguard.py (default: /usr/bin/python3)
+#   pythonPath: interpreter used to run cli/netguard.py (default: macOS /usr/bin/python3,
+#               Windows "python", Linux "python3"; falls back to the next candidate on ENOENT)
 #   cliPath:    absolute path to netguard.py (default: this package's cli/netguard.py)
 #   home:       directory holding config.json and ledger.jsonl (default: ~/.dsh/netguard)
 - insert:

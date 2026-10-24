@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to ~/.dsh/netguard/config.json (or $NETGUARD_HOME/config.json) and edit. Keys not present fall back to built-in defaults.",
+  "_comment": "Copy to ~/.dsh/netguard/config.json (or $NETGUARD_HOME/config.json) and edit. Keys not present fall back to built-in defaults. proxy.url overrides OS detection and NETGUARD_HTTP_PROXY.",
   "version": 1,
   "route": {
     "proxy_hosts": [
@@ -24,6 +24,9 @@
       "*.tencentcos.cn",
       "*.myqcloud.com"
     ]
+  },
+  "proxy": {
+    "url": ""
   },
   "stall": {
     "connect_timeout": 8,

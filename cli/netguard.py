@@ -33,7 +33,7 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 HOME = Path(os.environ.get("NETGUARD_HOME") or (Path.home() / ".dsh" / "netguard"))
 CONFIG_PATH = HOME / "config.json"
@@ -81,6 +81,9 @@ DEFAULT_CONFIG = {
         "per_call": 134217728,  # 128 MiB
         "per_day": 314572800,   # 300 MiB
     },
+    # Optional explicit proxy, overriding OS detection and NETGUARD_HTTP_PROXY.
+    # Example: {"url": "http://127.0.0.1:7890"}
+    "proxy": {"url": ""},
     "max_redirects": 5,
     "fail_cache_days": 7,
     "fail_cache_threshold": 2,
@@ -135,12 +138,76 @@ def merge(base: dict, override: dict) -> None:
 _scutil = {"at": 0.0, "value": None}
 
 
-def system_proxy(force: bool = False):
-    """Return (host, port) of the OS HTTP proxy, or None. Never hardcodes a port."""
+def parse_proxy(value: str):
+    """Accept "host:port", "127.0.0.1:7890", "http://host:port" -> (host, port)."""
+    if not value:
+        return None
+    parsed = urllib.parse.urlparse(value if "://" in value else f"http://{value}")
+    if not parsed.hostname:
+        return None
+    return (parsed.hostname, int(parsed.port or 80))
+
+
+def _windows_proxy():
+    """Read the WinINET system proxy from HKCU (best effort, no admin needed)."""
+    try:
+        import winreg
+        path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
+            enabled, _ = winreg.QueryValueEx(key, "ProxyEnable")
+            server, _ = winreg.QueryValueEx(key, "ProxyServer")
+        if not enabled or not server:
+            return None
+        if "=" in server:  # "http=h:p;https=h:p"
+            parts = dict(item.split("=", 1) for item in server.split(";") if "=" in item)
+            server = parts.get("https") or parts.get("http") or ""
+        return parse_proxy(server)
+    except Exception:
+        return None
+
+
+def _linux_proxy():
+    """Read the GNOME system proxy with gsettings (best effort)."""
+    try:
+        def gs(*args):
+            return subprocess.run(["gsettings", *args], capture_output=True,
+                                  text=True, timeout=3).stdout.strip().strip("'")
+        if gs("get", "org.gnome.system.proxy", "mode") != "manual":
+            return None
+        host = gs("get", "org.gnome.system.proxy.https", "host")
+        port = gs("get", "org.gnome.system.proxy.https", "port")
+        if not host:
+            host = gs("get", "org.gnome.system.proxy.http", "host")
+            port = gs("get", "org.gnome.system.proxy.http", "port")
+        if not host or not port:
+            return None
+        return (host, int(port))
+    except Exception:
+        return None
+
+
+def proxy_source(cfg: dict | None = None) -> str:
+    """Where the proxy address came from: config / env / macos / windows / gnome / none."""
+    if cfg and (cfg.get("proxy") or {}).get("url"):
+        return "config"
+    if os.environ.get("NETGUARD_HTTP_PROXY"):
+        return "env NETGUARD_HTTP_PROXY"
+    return {"darwin": "macOS system proxy", "win32": "Windows system proxy"}.get(
+        sys.platform, "Linux/GNOME system proxy (or none)")
+
+
+def system_proxy(force: bool = False, cfg: dict | None = None):
+    """Return (host, port) of the local HTTP proxy, or None. Never hardcodes a port.
+
+    Precedence: config.proxy.url -> NETGUARD_HTTP_PROXY -> OS detection.
+    """
+    if cfg:
+        explicit = (cfg.get("proxy") or {}).get("url")
+        if explicit:
+            return parse_proxy(explicit)
     env = os.environ.get("NETGUARD_HTTP_PROXY")
     if env:
-        parsed = urllib.parse.urlparse(env if "://" in env else f"http://{env}")
-        return (parsed.hostname, parsed.port or 8080)
+        return parse_proxy(env)
     if not force and time.time() - _scutil["at"] < 5:
         return _scutil["value"]
     value = None
@@ -157,6 +224,10 @@ def system_proxy(force: bool = False):
                 value = ("socks", int(data.get("SOCKSPort", "0")))
         except Exception:
             value = None
+    elif sys.platform == "win32":
+        value = _windows_proxy()
+    else:
+        value = _linux_proxy()
     _scutil["at"] = time.time()
     _scutil["value"] = value
     return value
@@ -312,7 +383,7 @@ def stalled(result: dict) -> bool:
 def fetch_url(url: str, cfg: dict, sink=None, max_bytes: int | None = None,
               force: bool = False, no_escalate: bool = False, method: str = "GET") -> dict:
     """Fetch a URL, applying the routing policy at every redirect hop."""
-    purl = proxy_url(system_proxy(force=True))
+    purl = proxy_url(system_proxy(force=True, cfg=cfg))
     day = today_key()
     used = proxy_bytes_on(day)
     budget = cfg["budget"]
@@ -404,17 +475,18 @@ def viewturbo_status():
 
 
 def cmd_status(args, cfg) -> int:
-    proxy = system_proxy(force=True)
+    proxy = system_proxy(force=True, cfg=cfg)
     purl = proxy_url(proxy)
     used = proxy_bytes_on(today_key())
     if purl:
-        proxy_line = purl
+        proxy_line = f"{purl}  [{proxy_source(cfg)}]"
     else:
-        proxy_line = "none (proxy client not connected, or no system proxy)"
+        proxy_line = f"none  [{proxy_source(cfg)}]"
     info = {
         "version": VERSION, "time": now_iso(), "proxy": purl,
         "today_proxy_bytes": used, "per_day": cfg["budget"]["per_day"],
         "per_call": cfg["budget"]["per_call"], "ledger": str(LEDGER_PATH),
+        "proxy_source": proxy_source(cfg),
     }
     print(f"netguard {VERSION}")
     print(f"time         : {info['time']}")
@@ -431,7 +503,7 @@ def cmd_status(args, cfg) -> int:
 def cmd_probe(args, cfg) -> int:
     host = (urllib.parse.urlparse(args.url).hostname or "").lower()
     cls = classify(host, cfg)
-    purl = proxy_url(system_proxy(force=True))
+    purl = proxy_url(system_proxy(force=True, cfg=cfg))
     direct = fetch_hop(args.url, None, cfg, method="HEAD")
     recommend = "direct"
     reason = "direct_ok"

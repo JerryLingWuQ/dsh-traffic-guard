@@ -194,5 +194,34 @@ class TestFetchPolicy(unittest.TestCase):
         self.assertTrue(result["ok"], result)
 
 
+class TestProxyResolution(unittest.TestCase):
+    def setUp(self):
+        self._saved = os.environ.pop("NETGUARD_HTTP_PROXY", None)
+        ng._scutil["at"] = 0.0
+
+    def tearDown(self):
+        os.environ.pop("NETGUARD_HTTP_PROXY", None)
+        if self._saved is not None:
+            os.environ["NETGUARD_HTTP_PROXY"] = self._saved
+
+    def test_config_explicit_wins_over_env(self):
+        cfg = {"proxy": {"url": "http://10.1.2.3:7890"}}
+        os.environ["NETGUARD_HTTP_PROXY"] = "http://127.0.0.1:9999"
+        self.assertEqual(ng.system_proxy(force=True, cfg=cfg), ("10.1.2.3", 7890))
+        self.assertEqual(ng.proxy_source(cfg), "config")
+
+    def test_config_accepts_host_port(self):
+        cfg = {"proxy": {"url": "127.0.0.1:8888"}}
+        self.assertEqual(ng.system_proxy(force=True, cfg=cfg), ("127.0.0.1", 8888))
+
+    def test_env_used_without_config(self):
+        os.environ["NETGUARD_HTTP_PROXY"] = "http://127.0.0.1:9999"
+        self.assertEqual(ng.system_proxy(force=True), ("127.0.0.1", 9999))
+        self.assertIn("env", ng.proxy_source())
+
+    def test_parse_proxy_empty(self):
+        self.assertIsNone(ng.parse_proxy(""))
+
+
 if __name__ == "__main__":
     unittest.main()

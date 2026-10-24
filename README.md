@@ -1,75 +1,109 @@
 # dsh-traffic-guard
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）用的**计量代理流量闸门**：
-让 agent 的下载默认走直连，只有在直连**真的停滞**时才借用代理，而且每一次代理流量都受**硬预算**约束、并记进本地账本。
+A **byte-budget gate for metered proxies** for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).
+Agent downloads go direct by default; the local proxy is used only when a direct attempt actually stalls,
+and every proxied byte is charged against a hard per-call / per-day budget and written to a local ledger.
 
-一个 CLI（`netguard`，可独立使用）+ 一个 Host 插件（3 个工具：`net_usage` / `net_probe` / `net_download`）。
+One CLI (`netguard`, usable standalone) + one Host plugin exposing three tools:
+`net_usage`, `net_probe`, `net_download`.
 
 ![ci](https://github.com/JerryLingWuQ/dsh-traffic-guard/actions/workflows/ci.yml/badge.svg)
 
-> English: [README.en.md](README.en.md)
+> 中文: [README.zh.md](README.zh.md)
 
----
+## Why
 
-## 为什么需要它
+When your egress is metered (a paid proxy plan, a mobile hotspot, a corporate gateway), **traffic is money**.
+Agents make that easy to lose:
 
-用「机场」类按量计费代理、手机热点、或企业出网网关时，**流量是钱**。而 agent 的工作方式恰好容易失控：
+- a single `curl -O`, `git clone` or `pip install` can be hundreds of MB;
+- desktop apps' **nightly auto-updaters** download full bundles in the background — we measured a single
+  **347.7 MB** update, and its updater used Chromium's network stack, which **honours the system proxy**,
+  so it really did spend plan traffic;
+- proxy clients usually report only an account-level total, **with no per-app or per-host attribution**;
+- meanwhile CLI children (curl/git/npm) often ignore the system proxy, so "some traffic goes through the
+  proxy and some doesn't" and the accounting never lines up.
 
-- 一次 `curl -O`、一次 `git clone`、一个 `pip install` 就可能几百 MB；
-- 桌面应用的 **nightly 自动更新**会在后台悄悄下载整包（本项目实测过一次 **347.7 MB** 的全量更新包，且更新器走 Chromium 网络栈、**遵守系统代理**，于是真的花了计划流量）；
-- 代理客户端通常只给你一个「账号已用总量」，**没有按应用/按域名的归因**，出了问题根本查不到是谁花的；
-- 而 CLI 子进程（curl/git/npm）往往又不读取系统代理，导致「有的流量进代理、有的不进」，统计口径完全对不上。
+`dsh-traffic-guard` turns this into one auditable policy: **direct first → escalate only on stall →
+hard budget → everything logged**.
 
-`dsh-traffic-guard` 把这些收拢成一条可审计的策略：**直连优先 → 停滞才升级 → 预算硬限 → 全部记账**。
+## What it does
 
-## 它做什么
-
-| 层 | 行为 |
+| Layer | Behaviour |
 | --- | --- |
-| **路由** | 默认直连。只有目标命中 `proxy_hosts`、且直连在 `connect_timeout` 内失败 / 0 字节 / 读超时时，才改走本机代理。代理地址从 `scutil --proxy`（macOS）或 `NETGUARD_HTTP_PROXY` 动态发现，不写死端口。 |
-| **预算** | 代理调用受 `per_call`（默认 128 MiB）与 `per_day`（默认 300 MiB）双重硬限；超限直接失败（退出码 3），`--force` 才放行。预算只约束「代理」，直连不花计划流量、不计数。 |
-| **重定向** | 关闭自动跟随，**每一跳都重新按策略判定**（借鉴 SSRF 护栏类插件的做法）：代理域跳到直连域会重新决策，不会一路错下去。 |
-| **预检** | 响应头 `Content-Length` 超过本次预算时**不下载**，一个字节都不花；流式读取时边读边数，超限立刻断开。 |
-| **超时** | 整条链共用一个 `max_time` 预算，避免「每跳各卡 19 秒 × N 跳」。 |
-| **账本** | 每次调用写一行 JSONL：时间、URL、host、路由、字节、耗时、成败、命中哪条规则。`report` 可按天/按主机汇总。 |
-| **失败缓存** | 某主机近期直连多次失败后，下次直接走代理，省掉每次 8 秒的等待。 |
+| **Routing** | Direct by default. Only hosts in `proxy_hosts` may use the proxy, and only after a direct attempt fails / returns zero bytes / reads too slowly. The proxy is discovered from the OS (`scutil --proxy` on macOS, `NETGUARD_HTTP_PROXY` elsewhere); no hardcoded port. |
+| **Budget** | Proxied calls are capped per call (default 128 MiB) and per day (default 300 MiB). Exceeding either is a hard failure (exit 3); only `--force` overrides. Direct traffic is free and not charged. |
+| **Redirects** | Automatic following is disabled and **every hop is re-evaluated** (borrowed from SSRF-guard plugins): a redirect from a proxy host to a direct host is re-decided, not blindly proxied. |
+| **Pre-checks** | If `Content-Length` already exceeds the call budget, nothing is downloaded; while streaming, bytes are counted and the read is aborted on overflow. |
+| **Timeouts** | One `max_time` budget for the whole redirect chain, so N hops cannot multiply the wait. |
+| **Ledger** | One JSONL row per call: timestamp, URL, host, route, bytes, duration, outcome, matched rule. `report` aggregates by day and host. |
+| **Fail cache** | A host that recently failed direct repeatedly skips the direct attempt next time, saving the 8 s stall each call. |
 
-## 安装
+## Install
 
 ```bash
-# 从 GitHub 安装（推荐）
 dsh plugin --profile <profile> add github:<you>/dsh-traffic-guard
-
-# 或者在 Desktop 版里用 plugin_manager 安装本地目录
-#   action: install_bundle, target: <该仓库的绝对路径>
 ```
 
-插件不依赖任何 dsh 包（只用 Node 内置模块），因此可以按 linked package 方式安装。
-装好后模型会多出三个工具：
+or install the checkout as a local bundle with `plugin_manager` (`action: install_bundle`,
+`target: <absolute path to this repository>`). The plugin has no dsh dependencies (Node builtins only),
+so a linked package works.
 
-- `net_usage`：读账本（按天/按主机/直连 vs 代理）；
-- `net_probe`：先探测直连是否可用，避免无谓地走代理；
-- `net_download`：带策略与预算的下载。
+Tools exposed to the model: `net_usage`, `net_probe`, `net_download`.
 
-## CLI 单独使用
+## Portability: other machines, other proxy clients
+
+**It is not tied to one proxy vendor.** Neither the plugin nor the CLI contains vendor-specific code;
+`dsh-traffic-guard` only needs a local **HTTP/HTTPS proxy** and a metered plan. Any client that exposes an
+HTTP proxy port works — Clash/mihomo, Surge, Stash, sing-box, V2Ray, a corporate egress gateway, or an SSH
+tunnel bridged to HTTP. The optional `status` line that reads a local client's `/status` endpoint is a
+nicety: when no such endpoint exists it is simply skipped.
+
+The author's client-side split-routing rules are **not** part of this repository — routing policy inside a
+closed-source client is a different problem, and no vendor formats or keys are shipped here.
+
+### How the proxy address is discovered
+
+| Priority | Source | Notes |
+| --- | --- | --- |
+| 1 | `config.proxy.url` | e.g. `"http://127.0.0.1:7890"` — most explicit, works everywhere |
+| 2 | `NETGUARD_HTTP_PROXY` env | Same format; good for CI and per-shell overrides |
+| 3 | OS detection | macOS `scutil --proxy`; Windows WinINET registry; GNOME `gsettings` |
+
+SOCKS-only clients are not supported by Python's `urllib`; use the client's HTTP proxy port (most clients
+expose one) or a local HTTP→SOCKS bridge.
+
+### What a migration needs
+
+```
+Python >= 3.9, Node >= 18.17, dsh
++ a local HTTP proxy port
++ host lists edited for the new network (proxy_hosts / direct_hosts)
+```
+
+- The ledger (`~/.dsh/netguard/ledger.jsonl`) is **per machine**; copy it along if you want history to continue.
+- Budgets are enforced by `netguard` only; the OS and the proxy client still apply their own limits.
+- Auto-detection is best-effort: the Windows/Linux detectors are implemented, but CI only exercises the
+  deterministic config/env paths. Set `config.proxy.url` when in doubt.
+
+## Standalone CLI
 
 ```bash
-export NETGUARD_HOME=~/.dsh/netguard      # 可选，默认就是它
+export NETGUARD_HOME=~/.dsh/netguard      # optional, this is the default
 cp cli/config.example.json "$NETGUARD_HOME/config.json"
 
-python3 cli/netguard.py status            # 当前代理 + 今日已用/剩余预算
+python3 cli/netguard.py status
 python3 cli/netguard.py probe https://github.com/
 python3 cli/netguard.py dl https://example.com/file.zip -o /tmp/file.zip
 python3 cli/netguard.py report --days 7
 ```
 
-退出码：`0` 成功、`3` 预算/大小被拒、`4` 网络失败、`5` 需要代理但代理不可用。
+Exit codes: `0` ok, `3` budget/size refused, `4` network failure, `5` proxy needed but unavailable.
 
-## 配置
+## Configuration
 
-`$NETGUARD_HOME/config.json`（默认 `~/.dsh/netguard/config.json`），字段见 [cli/config.example.json](cli/config.example.json)。
-
-最关键的是两个名单：
+`$NETGUARD_HOME/config.json` (default `~/.dsh/netguard/config.json`); see
+[cli/config.example.json](cli/config.example.json).
 
 ```json
 {
@@ -81,43 +115,47 @@ python3 cli/netguard.py report --days 7
 }
 ```
 
-- `proxy_hosts`：**允许**在直连停滞时使用代理的主机（不是「必须走代理」）。
-- `direct_hosts`：**永远**不走代理的主机，优先级高于 `proxy_hosts`。把你的模型 API、国内镜像、更新 CDN 放这里，能省掉大量计划流量。
+`proxy_hosts` are hosts **allowed** to use the proxy when direct stalls (not "must use proxy").
+`direct_hosts` are hosts that **never** use the proxy and take precedence.
 
-## 与同类插件的对比
+## Compared with related dsh plugins
 
-DSH 生态里已有几个方向相近的插件，本项目的取舍是**预算与账本**，不是出网安全：
+The ecosystem already has egress-security plugins; this one is about **budget and accounting**:
 
-| 项目 | 关注点 | 本项目借鉴了什么 |
+| Project | Focus | What we borrowed |
 | --- | --- | --- |
-| [JackZo400/dsh-netguard](https://github.com/JackZo400/dsh-netguard) | SSRF 出网护栏：解析后的每个 IP 都判、每跳重定向复查、流式限字节、预检 Content-Length | 逐跳重定向复查、`Content-Length` 预检、整链共享超时 |
-| [CharlotteN7/dsh-netguard](https://github.com/CharlotteN7/dsh-netguard) | `web_fetch`/`web_search` 主机允许名单、bash 命令目标预检、默认 audit 模式 | 「先记账、后约束」的 audit-first 思路 |
-| [wtdwang/dsh-tool-netguard](https://github.com/wtdwang/dsh-tool-netguard) | 区分「外传 / 获取」，`tools/pre-execute` + `ctx.approval` | 未来可加「超预算前弹审批」 |
-| [MukundaKatta/resilient-agent](https://github.com/MukundaKatta/resilient-agent) | 重试、熔断、USD 预算、出网名单、审计轨迹 | 预算 + 审计正交的验证 |
+| [JackZo400/dsh-netguard](https://github.com/JackZo400/dsh-netguard) | SSRF guard: resolve and check every IP, re-check every redirect hop, stream with a byte cap, pre-check `Content-Length` | Per-hop redirect re-evaluation, `Content-Length` pre-check, whole-chain timeout |
+| [CharlotteN7/dsh-netguard](https://github.com/CharlotteN7/dsh-netguard) | Host allowlist for `web_fetch`/`web_search`, pre-execute destination checks, audit-first mode | Audit-first framing (record first, constrain only proxy spend) |
+| [wtdwang/dsh-tool-netguard](https://github.com/wtdwang/dsh-tool-netguard) | Split "egress" vs "ingress", `tools/pre-execute` + `ctx.approval` | Possible future "ask before over-budget" gate |
+| [MukundaKatta/resilient-agent](https://github.com/MukundaKatta/resilient-agent) | Retries, circuit breaker, USD budget, egress allowlist, audit trace | Independent validation that budget + audit compose |
 
-如果你要的是「防 SSRF / 防数据外泄」，请优先看上面三个；本插件解决的是「别把计量流量烧光」。
+If you need SSRF / exfiltration protection, use those; this repo keeps you from burning a metered plan.
 
 ## Roadmap
-- [ ] 超预算前走 `ctx.approval` 弹审批，而不是直接失败
-- [ ] `netguard` 支持 SOCKS5（现在只支持 HTTP/HTTPS 代理）
-- [ ] 可选 `web_fetch` provider 替换模式（需处理 `WEB_PROVIDER_AMBIGUOUS`）
-- [x] CI（GitHub Actions：10 个单测 + `node --check` + manifest JSON 校验）
-- [ ] 发布 npm 包，支持 `dsh plugin add dsh-traffic-guard`
-- [ ] 收录进 awesome-dsh-plugin / dsh-market 等社区列表
+- [ ] Ask through `ctx.approval` before exceeding the budget instead of failing hard
+- [ ] SOCKS5 support in `netguard` (HTTP/HTTPS proxies only today)
+- [ ] Optional `web_fetch` provider replacement (needs handling of `WEB_PROVIDER_AMBIGUOUS`)
+- [x] CI (GitHub Actions: 14 unit tests + `node --check` + manifest JSON check)
+- [x] Cross-platform proxy discovery (macOS system proxy, Windows WinINET, GNOME)
+- [ ] Publish to npm so `dsh plugin add dsh-traffic-guard` works
+- [ ] Get listed in awesome-dsh-plugin / dsh-market
 
-## 局限（请先读）
+## Limitations
 
-- **不是操作系统级防火墙**。它约束的是「经过 `netguard` 的下载」。任何绕过它的 `curl`、`git clone`、应用自动更新，都不会被拦（但会出现在系统/客户端的总量里）。
-- **代理客户端没有按应用归因**，所以本插件用**自己的账本**补这一块；账本只覆盖经过 `netguard` 的调用。
-- **预算是对 agent 的硬约束，不是对系统的硬约束**：`--force` 可以覆盖，且它无法阻止其他进程使用同一个代理。
-- 目前只支持 HTTP/HTTPS 代理（urllib 不支持 SOCKS）；SOCKS-only 客户端请改用它提供的 HTTP 代理口。
-- macOS 用 `scutil --proxy` 发现系统代理；Linux/Windows 请设置 `NETGUARD_HTTP_PROXY`。
-- 不包含任何特定代理客户端的私有配置格式或密钥。
+- **Not an OS-level firewall.** It constrains downloads that go through `netguard`. Bypassing calls
+  (`curl`, `git clone`, app auto-updaters) are not stopped, though they show up in system/plan totals.
+- Proxy clients generally have **no per-app attribution**; this plugin fills that gap with its own ledger,
+  which only covers calls routed through it.
+- The budget is a hard constraint on the agent, not on the machine: `--force` overrides it, and other
+  processes can still use the same proxy.
+- HTTP/HTTPS proxies only (urllib has no SOCKS support); use the client's HTTP proxy port.
+- Proxy discovery: macOS `scutil --proxy`; Linux/Windows via `NETGUARD_HTTP_PROXY`.
+- Contains no vendor-specific configuration formats or keys.
 
-## 开发
+## Development
 
 ```bash
-python3 -m unittest discover -s test -v   # 10 个用例，全部走本地 127.0.0.1，无外网
+python3 -m unittest discover -s test -v   # 10 tests, all against a local 127.0.0.1 server
 node --check index.mjs
 ```
 

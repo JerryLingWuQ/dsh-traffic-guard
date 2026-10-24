@@ -38,23 +38,49 @@ function resolveCli(config) {
   return candidates[0] ?? path.join(PACKAGE_ROOT, 'cli', 'netguard.py')
 }
 
-function runCli(config, args, timeoutMs = 900000) {
-  const cli = resolveCli(config)
-  const python = config?.pythonPath || process.env.NETGUARD_PYTHON || '/usr/bin/python3'
-  const env = { ...process.env }
-  if (config?.home) env.NETGUARD_HOME = config.home
+function pythonCandidates(config) {
+  const configured = config?.pythonPath || process.env.NETGUARD_PYTHON
+  const platformDefaults = process.platform === 'win32'
+    ? ['python', 'py', 'python3']
+    : process.platform === 'darwin'
+      ? ['/usr/bin/python3', 'python3', 'python']
+      : ['python3', '/usr/bin/python3', 'python']
+  return [...new Set([configured, ...platformDefaults].filter(Boolean))]
+}
+
+function execOnce(python, cli, args, env, timeoutMs) {
   return new Promise((resolve, reject) => {
     execFile(python, [cli, ...args], { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env },
       (error, stdout, stderr) => {
         const out = String(stdout ?? '').trim()
         const err = String(stderr ?? '').trim()
         if (error && !out) {
-          reject(new Error(err || error.message))
+          const wrapped = new Error(err || error.message)
+          wrapped.code = error.code
+          reject(wrapped)
           return
         }
         resolve({ code: error ? (error.code ?? 1) : 0, stdout: out, stderr: err })
       })
   })
+}
+
+async function runCli(config, args, timeoutMs = 900000) {
+  const cli = resolveCli(config)
+  const env = { ...process.env }
+  if (config?.home) env.NETGUARD_HOME = config.home
+  let lastError
+  for (const python of pythonCandidates(config)) {
+    try {
+      return await execOnce(python, cli, args, env, timeoutMs)
+    } catch (error) {
+      // Only a missing interpreter is worth retrying with the next candidate;
+      // a non-zero exit is a real result (budget refusal, network failure).
+      if (error.code !== 'ENOENT') throw error
+      lastError = error
+    }
+  }
+  throw lastError
 }
 
 function textValue(text) {

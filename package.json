@@ -1,8 +1,8 @@
 {
   "name": "dsh-traffic-guard",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "DeepSeek Harness plugin: a byte-budget gate for agents that download through a metered proxy (direct-first, stall-triggered proxy, hard per-call/per-day caps, local ledger).",
+  "description": "DeepSeek Harness plugin: a byte-budget gate for agents that download through a metered proxy (direct-first, stall-triggered proxy, hard per-call/per-day caps, local ledger). Cross-platform: macOS/Linux/Windows.",
   "type": "module",
   "main": "index.mjs",
   "exports": {
@@ -18,7 +18,7 @@
     "cli/netguard.py",
     "cli/config.example.json",
     "README.md",
-    "README.en.md",
+    "README.zh.md",
     "LICENSE",
     "test/test_netguard.py"
   ],
