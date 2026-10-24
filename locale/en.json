@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Traffic Guard",
+    "description": "A byte-budget gate for agents on a metered proxy: direct-first, proxy only when stalled, hard per-call and per-day caps, plus a local traffic ledger."
+  }
+}

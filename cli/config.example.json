@@ -1,0 +1,42 @@
+{
+  "_comment": "Copy to ~/.dsh/netguard/config.json (or $NETGUARD_HOME/config.json) and edit. Keys not present fall back to built-in defaults.",
+  "version": 1,
+  "route": {
+    "proxy_hosts": [
+      "github.com",
+      "*.github.com",
+      "*.githubusercontent.com",
+      "codeload.github.com",
+      "objects.githubusercontent.com",
+      "release-assets.githubusercontent.com",
+      "huggingface.co",
+      "*.huggingface.co",
+      "*.hf.co",
+      "*.hf-mirror.com"
+    ],
+    "direct_hosts": [
+      "localhost",
+      "127.0.0.1",
+      "*.local",
+      "*.npmmirror.com",
+      "*.ustc.edu.cn",
+      "*.aliyun.com",
+      "*.tencentcos.cn",
+      "*.myqcloud.com"
+    ]
+  },
+  "stall": {
+    "connect_timeout": 8,
+    "read_timeout": 20,
+    "speed_limit": 65536,
+    "speed_window": 10,
+    "max_time": 900
+  },
+  "budget": {
+    "per_call": 134217728,
+    "per_day": 314572800
+  },
+  "max_redirects": 5,
+  "fail_cache_days": 7,
+  "fail_cache_threshold": 2
+}

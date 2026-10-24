@@ -1,0 +1,44 @@
+{
+  "name": "dsh-traffic-guard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DeepSeek Harness plugin: a byte-budget gate for agents that download through a metered proxy (direct-first, stall-triggered proxy, hard per-call/per-day caps, local ledger).",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.mjs",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "cli/netguard.py",
+    "cli/config.example.json",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "test/test_netguard.py"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "traffic",
+    "budget",
+    "proxy",
+    "metered",
+    "egress"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
