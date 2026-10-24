@@ -459,21 +459,6 @@ def fetch_url(url: str, cfg: dict, sink=None, max_bytes: int | None = None,
 
 # ---------------------------------------------------------------------- commands
 
-def viewturbo_status():
-    """Optional: read a local proxy client's own /status counters (no extra traffic)."""
-    try:
-        req = urllib.request.Request("http://127.0.0.1:15731/status",
-                                     headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=1.5) as resp:
-            data = (json.loads(resp.read().decode("utf-8")).get("data") or {})
-        if not data.get("running"):
-            return {"running": False}
-        return {"running": True, "sent_bytes": data.get("sent_bytes"),
-                "received_bytes": data.get("received_bytes")}
-    except Exception:
-        return None
-
-
 def cmd_status(args, cfg) -> int:
     proxy = system_proxy(force=True, cfg=cfg)
     purl = proxy_url(proxy)

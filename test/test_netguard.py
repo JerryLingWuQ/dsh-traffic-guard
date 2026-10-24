@@ -117,7 +117,7 @@ class TestRouting(unittest.TestCase):
         self.assertEqual(ng.classify("other.org", cfg), "direct_first")
 
     def test_proxy_url(self):
-        self.assertEqual(ng.proxy_url(("127.0.0.1", 15732)), "http://127.0.0.1:15732")
+        self.assertEqual(ng.proxy_url(("127.0.0.1", 7890)), "http://127.0.0.1:7890")
         self.assertIsNone(ng.proxy_url(("socks", 1080)))
         self.assertIsNone(ng.proxy_url(None))
 
